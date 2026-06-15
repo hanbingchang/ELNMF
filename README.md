@@ -1,4 +1,4 @@
-# ELNMF: Ensemble Learning-driven Non-negative Matrix Factorization for Spatial Domain Identification
+# ELNMF
 
 ELNMF is an ensemble learning-driven framework for spatial domain identification in spatial transcriptomics data. By jointly leveraging spatial context and transcriptional information, ELNMF identifies biologically meaningful spatial domains with enhanced robustness and reliability.
 
@@ -63,4 +63,47 @@ install.packages(
 | `aggregative_indicator.R` | Computation of clustering quality score based on Silhouette Score and CHAOS (Silhouette/CHAOS ratio) |
 | `filter_top.R` | Selection of high-quality clustering results based on the composite score and removal of low-quality solutions for consensus construction |
 
+---
+
+## Tutorials
+
+Here is a quick example of running ELNMF on the Human Breast Cancer dataset (10X Visium).
+
+```r
+library(Seurat)
+library(Matrix)
+library(hdf5r)  
+
+# 1. Load example dataset
+data_path <- "data/Human_Breast_Cancer/"
+
+expr <- Read10X_h5(paste0(data_path, "filtered_feature_bc_matrix.h5"))
+coords <- read.csv(paste0(data_path, "spatial/tissue_positions_list.csv"))
+
+# 2. Run ELNMF
+source("main/ELNMF.R")
+
+result <- ELNMF(
+  expr_matrix = expr,
+  spatial_coord = coords,
+  k_range = 10:28,
+  lambda_range = 40:60,  
+  n_cluster = 20          
+)
+
+# 3. Save clustering results to CSV
+cluster_df <- data.frame(
+  barcode = colnames(expr),        
+  cluster = result$cluster         
+)
+write.csv(cluster_df, file = "ELNMF_clustering_results.csv", row.names = FALSE)
+
+# Optional: print first few rows to check
+head(cluster_df)
+```
+---
+## License
+
+This project is released under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html).  
+See the [LICENSE](LICENSE) file for the full text.
 
