@@ -25,7 +25,7 @@ The framework was implemented in **R (version 4.5.2)**.
 ### Software
 
 - R ≥ 4.5.2
-
+- RStudio recommended but not required
 ### R packages (direct dependencies)
 
 The following R packages are required to run ELNMF:
