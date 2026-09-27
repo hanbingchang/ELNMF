@@ -1,4 +1,4 @@
-setwd("D:/Papercode/my/GR")
+if (!file.exists("main/NMF.R")) stop("Run from the repository root")
 getwd()
 
 # Human_Breast_Cancer data analysis
@@ -16,7 +16,7 @@ set.seed(1234)
 
 # ------------------------------ Load data ---------------------------------
 cat("========== Data loading ==========\n")
-data_path <- "D:/Papercode/my/GR/data/Human_Breast_Cancer/filtered_feature_bc_matrix.h5"
+data_path <- "data/Human_Breast_Cancer/filtered_feature_bc_matrix.h5"
 st_data <- Read10X_h5(data_path)
 seurat_obj <- CreateSeuratObject(
   counts = st_data,
@@ -65,13 +65,13 @@ cat("HVG expression matrix dimensions:", dim(X), "\n")
 # Keep only spots that are in tissue and have a ground-truth label
 cat("========== Spot alignment ==========\n")
 
-coord_file <- "D:/Papercode/my/GR/data/Human_Breast_Cancer/spatial/tissue_positions_list.csv"
+coord_file <- "data/Human_Breast_Cancer/spatial/tissue_positions_list.csv"
 coord_df <- read.csv(coord_file, header = FALSE, stringsAsFactors = FALSE)
 colnames(coord_df) <- c("barcode", "in_tissue", "array_row", "array_col", "imagerow", "imagecol")
 tissue_spots <- coord_df$barcode[coord_df$in_tissue == 1]
 cat("Spots in tissue:", length(tissue_spots), "\n")
 
-meta_path <- "D:/Papercode/my/GR/data/Human_Breast_Cancer/metadata.tsv"
+meta_path <- "data/Human_Breast_Cancer/metadata.tsv"
 metadata <- read.delim(meta_path, stringsAsFactors = FALSE)
 label_map <- setNames(metadata$ground_truth, metadata$ID)
 na_patterns <- c("", "NA", "na", "Na", "nA")
@@ -104,11 +104,11 @@ cat("Number of true clusters:", nlevels(true_labels), "\n")
 
 # ------------------------------ Build hybrid graph -----------------------
 cat("========== Building hybrid graph ==========\n")
-source("D:/Papercode/my/CL-NMF/hybrid graph.R")   # function name: hybrid_graph
+source("main/hybrid graph.R")   # function name: hybrid_graph
 
 hybrid_df <- hybrid_graph(
   X = X,
-  coord_file = "D:/Papercode/my/GR/data/Human_Breast_Cancer/spatial/tissue_positions_list.csv",
+  coord_file = "data/Human_Breast_Cancer/spatial/tissue_positions_list.csv",
   model = "KNN",
   k_cutoff = 12,
   alpha = 0.8,
@@ -140,12 +140,12 @@ n_clusters <- length(unique(na.omit(true_labels)))
 cat("k_values:", k_values, "\n")
 cat("lambda_values:", lambda_values, "\n")
 
-source("D:/Papercode/my/GR/NMF.R")   
+source("main/NMF.R")   
 
 # ------------------------------ Generate and save V matrices -------------
 cat("\n========== Generating and saving all V matrices ==========\n")
 
-save_dir <- "D:/Papercode/my/GR/results/HBC"
+save_dir <- "results/HBC"
 if (!dir.exists(save_dir)) {
   dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
   cat("Created directory:", save_dir, "\n")
@@ -175,6 +175,7 @@ for (lambda1 in lambda_values) {
     V <- nmf_res$V
     v_name <- sprintf("V_lambda%d_k%d", lambda1, k)
     V_list[[v_name]] <- V
+    saveRDS(V, file.path(save_dir, paste0(v_name, ".rds")))
     
     V_metadata <- rbind(V_metadata, data.frame(
       id = v_name,
@@ -207,10 +208,10 @@ cat(sprintf("  - V_metadata.csv\n"))
 cat(sprintf("Time taken: %.2f minutes\n", time_diff))
 
 # ------------------------------ Load external functions ------------------
-source("D:/Papercode/my/GR/NMF.R")
-source("D:/Papercode/my/GR/ensemble_clustering_filtered.R")  
-source("D:/Papercode/my/GR/aggregative_indicator.R")  
-source("D:/Papercode/my/GR/filter_top.R")    # may be used inside ensemble_clustering_filtered
+source("main/NMF.R")
+source("main/ensemble_clustering_filtered.R")  
+source("main/aggregative_indicator.R")  
+source("main/filter_top.R")    # may be used inside ensemble_clustering_filtered
 
 # ------------------------------ Ensemble clustering with filtering --------
 cat("========== Ensemble clustering with quality filtering ==========\n")

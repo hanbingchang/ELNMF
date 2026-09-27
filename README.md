@@ -1,109 +1,182 @@
 # ELNMF
 
-ELNMF is an ensemble learning-driven framework for spatial domain identification in spatial transcriptomics data. By jointly leveraging spatial context and transcriptional information, ELNMF identifies biologically meaningful spatial domains with enhanced robustness and reliability.
+ELNMF is an interpretable ensemble framework for spatial domain identification in spatial transcriptomics. It integrates multiple graph-regularized non-negative matrix factorization (NMF) solutions through quality-based partition filtering and consensus clustering.
 
 ## Overview
 
-ELNMF employs a graph-regularized non-negative matrix factorization framework to learn informative latent representations from spatial transcriptomics data by jointly considering spatial proximity and gene expression similarity. This integration enables the characterization of both tissue architecture and transcriptional heterogeneity underlying spatial organization.
+A hybrid graph encodes spatial proximity and gene expression similarity for NMF regularization. Candidate representations are generated across combinations of latent dimensions and graph-regularization strengths, and each representation is clustered independently using K-means and PAM. The resulting partitions are evaluated using a quality score that combines the Silhouette coefficient with the CHAOS score, both computed in the corresponding NMF latent space. Low-quality partitions are discarded, and the retained partitions are integrated through consensus clustering to reduce dependence on any single parameter configuration.
 
-To further enhance the reliability of spatial domain identification, ELNMF introduces an ensemble learning-driven consensus strategy. Multiple latent representations generated under different parameter settings are first used to derive diverse base clustering solutions. High-quality clustering results are subsequently selected and integrated through consensus learning to aggregate complementary clustering information. By leveraging the diversity of latent representations, ELNMF effectively reduces sensitivity to parameter selection and stochastic variation, thereby improving the stability, robustness, and reliability of the final spatial domain assignments.
+The main methodological contribution is the ensemble framework combining parameter-diverse NMF representations, quality-based partition filtering, and consensus integration. The hybrid graph serves as a supporting component for representation learning.
 
-The framework was implemented in **R (version 4.5.2)**. 
 
----
-## Framework 
+## Framework
+
 <p align="center">
-  <img src="ELNMF_overview.png" width="900">
+  <img src="ELNMF_overview.png" width="900" alt="Overview of the ELNMF framework">
 </p>
- 
- **Figure 1.** Schematic overview of the ELNMF framework. 
-(A) Hybrid graph construction: spatial coordinates and the preprocessed gene expression matrix are integrated to construct a hybrid graph that characterizes local spatial structure and expression associations. (B) Non-negative matrix factorization: the expression matrix is decomposed to learn multiple low-dimensional latent representations, with the constructed hybrid graph incorporated as a graph regularization term. (C) Consensus clustering: multiple low-dimensional representations are integrated, and a consensus matrix is constructed through consensus clustering to obtain stable clustering results. (D) Downstream applications: the optimized low-dimensional representations can be further used for downstream tasks, including spatial domain identification, functional enrichment analysis, and cell–cell communication analysis.
- 
- ---
+
+**Figure 1.** Schematic overview of ELNMF. (A) Hybrid graph construction integrates spatial proximity and gene expression similarity. (B) Graph-regularized NMF generates latent representations across multiple parameter configurations. (C) Each representation is clustered independently; the resulting base partitions are scored and filtered before their co-association matrices are averaged for consensus clustering. (D) The identified spatial domains and factorization outputs support downstream analyses, including functional enrichment and cell–cell communication analysis.
+
 ## Requirements
 
-### Software
+ELNMF is implemented in R. The original repository documentation reports R 4.5.2, whereas the manuscript's computational benchmarks report R 4.5.1. These are reported environments, not a verified minimum-version requirement. RStudio is optional. Package versions should be recorded separately for each reproduced experiment using `sessionInfo()`.
 
-- R ≥ 4.5.2
-- RStudio recommended but not required
-### R packages (direct dependencies)
-
-The following R packages are required to run ELNMF:
+The current scripts use the following packages:
 
 ```r
 required_packages <- c(
-  "Seurat",   
-  "hdf5r",    
-  "ggplot2", 
-  "patchwork",
-  "Matrix",   
-  "mclust",   
-  "aricode",  
-  "FNN",      
-  "dbscan",   
-  "igraph",  
-  "kernlab",  
-  "cluster"   
+  "Seurat", "hdf5r", "ggplot2", "patchwork", "Matrix",
+  "mclust", "aricode", "FNN", "dbscan", "igraph",
+  "kernlab", "cluster"
 )
 
-install.packages(
-  setdiff(required_packages,
-          rownames(installed.packages()))
-)
+missing_packages <- setdiff(required_packages, rownames(installed.packages()))
+if (length(missing_packages) > 0) install.packages(missing_packages)
 ```
----
-## Description of Scripts
 
-| Script | Description |
-|----------|-------------|
-| `ELNMF.R` | Main script for running the complete ELNMF pipeline |
-| `hybrid_graph.R` | Construction of spatial–expression similarity structure |
-| `NMF.R` | Graph-regularized non-negative matrix factorization implementation |
-| `ensemble_clustering_filtered.R` | Generation of clustering results from multiple latent representations |
-| `aggregative_indicator.R` | Computation of clustering quality score based on Silhouette Score and CHAOS (Silhouette/CHAOS ratio) |
-| `filter_top.R` | Selection of high-quality clustering results based on the composite score and removal of low-quality solutions for consensus construction |
+This installs available package versions; it does not recreate a version-locked manuscript environment. Additional dependencies may be needed for data conversion, comparison methods, and downstream analyses.
 
----
+## Repository structure
+
+| File or directory | Description |
+|---|---|
+| `main/ELNMF.R` | HBC analysis script covering preprocessing, representation generation, consensus clustering, and ARI/NMI evaluation; uses repository-relative paths |
+| `main/hybrid graph.R` | Hybrid graph construction |
+| `main/NMF.R` | Graph-regularized NMF, including `regularized_nmf()` |
+| `main/ensemble_clustering_filtered.R` | Clustering helpers, co-association matrix construction, and the `ensemble_clustering()` function |
+| `main/aggregative_indicator.R` | Silhouette coefficient, implementation-specific CHAOS score, and their ratio |
+| `main/filter_top.R` | Defines `ensemble_clustering_filtered()`, which loads candidate representations, scores base partitions, applies quantile filtering, and constructs the consensus matrix |
+| `data/` | Dataset files arranged by dataset and DLPFC section |
+| `ELNMF_overview.png` | Framework illustration |
+
+Despite its filename, `main/ensemble_clustering_filtered.R` does not define the filtered-pipeline entry point; that function is currently defined in `main/filter_top.R`.
+
+## Data preparation
+
+The study evaluates human breast cancer (HBC), mouse visual cortex (MVC), and 12 human dorsolateral prefrontal cortex (DLPFC) sections.
+
+The HBC script expects:
+
+```text
+data/Human_Breast_Cancer/
+  filtered_feature_bc_matrix.h5
+  metadata.tsv
+  spatial/tissue_positions_list.csv
+```
+
+For HBC, the metadata must include `ID` and `ground_truth`. The script reads the legacy tissue-position file without a header and assigns the columns `barcode`, `in_tissue`, `array_row`, `array_col`, `imagerow`, and `imagecol`. Coordinate and metadata readers must match the actual input format.
+
+The expression matrix uses genes as rows and spots as columns. All coordinate rows, labels, and latent representations must be aligned by spot barcode. The HBC benchmark script retains spots present in the expression matrix, marked as in-tissue, and having a non-missing reference label. It derives the target number of clusters from the reference labels. These benchmark choices should be distinguished from application to an unannotated dataset.
+
+The current MVC directory contains H5AD/H5Seurat files. The HBC input reader is not a general MVC loading or conversion workflow.
+
+## Parameter settings
+
+The manuscript uses the following candidate grids:
+
+```r
+k_values <- seq(10, 28, by = 2)
+lambda_hbc_dlpfc <- seq(40, 60, by = 5)
+lambda_mvc <- seq(180, 200, by = 5)
+```
+
+Ten values of K and five values of lambda produce 50 NMF representations. Applying K-means and PAM to each representation produces 100 base partitions, provided all representations are available and successfully processed. K is the NMF latent dimension, not the number of final spatial domains.
+
+### Settings reported in Supplementary Table S1
+
+The table below records the current manuscript settings supplied by the authors. The computational-cost scripts preserve their original run settings; their documented differences from this table are listed in the experiment guide. 
+| Dataset / section | tau | sigma | alpha | KNN | lambda candidates | q |
+|---|---:|---:|---:|---:|---|---:|
+| DLPFC 151507 | 0.87 | 1 | 0.8 | 22 | 40, 45, 50, 55, 60 | 0.79 |
+| DLPFC 151508 | 0.87 | 1 | 0.8 | 17 | 40, 45, 50, 55, 60 | 0.55 |
+| DLPFC 151509 | 0.87 | 1 | 0.8 | 10 | 40, 45, 50, 55, 60 | 0.35 |
+| DLPFC 151510 | 0.95 | 1 | 0.8 | 8 | 40, 45, 50, 55, 60 | 0.30 |
+| DLPFC 151669 | 0.91 | 1 | 0.8 | 6 | 40, 45, 50, 55, 60 | 0.93 |
+| DLPFC 151670 | 0.89 | 1 | 0.8 | 7 | 40, 45, 50, 55, 60 | 0.46 |
+| DLPFC 151671 | 0.97 | 1 | 0.8 | 14 | 40, 45, 50, 55, 60 | 0.19 |
+| DLPFC 151672 | 0.93 | 1 | 0.8 | 24 | 40, 45, 50, 55, 60 | 0.74 |
+| DLPFC 151673 | 0.90 | 1 | 0.8 | 8 | 40, 45, 50, 55, 60 | 0.34 |
+| DLPFC 151674 | 0.92 | 1 | 0.8 | 4 | 40, 45, 50, 55, 60 | 0.63 |
+| DLPFC 151675 | 0.99 | 1 | 0.8 | 7 | 40, 45, 50, 55, 60 | 0.52 |
+| DLPFC 151676 | 0.93 | 1 | 0.8 | 12 | 40, 45, 50, 55, 60 | 0.51 |
+| HBC | 0.91 | 1 | 0.8 | 12 | 40, 45, 50, 55, 60 | 0.45 |
+| MVC | 0.86 | 1 | 0.8 | 27 | 180, 185, 190, 195, 200 | 0.30 |
+
+All rows use K = 10, 12, ..., 28. Here, tau is the gene zero-expression proportion threshold, sigma and alpha are graph-construction parameters, KNN is the spatial-neighborhood size, and q is the partition-filtering quantile. The HBC script retains genes with zero-expression proportion strictly below tau, applies library-size normalization to 10,000 followed by `log1p`, and selects 2,000 highly variable genes. It calls NMF with `max_iter = 500` and `tol = 1e-4`.
+
+The dataset-specific q values were selected using agreement with reference annotations. They are reported benchmark settings, not universally optimal defaults. 
+
+## Quality score and CHAOS implementation
+
+Each of the 100 base partitions is evaluated using its corresponding NMF representation V, oriented as spots by latent dimensions. The score is:
+
+$$
+S_{\mathrm{score}} = \frac{\mathrm{SC}}{\mathrm{CHAOS}}.
+$$
+
+**Silhouette coefficient (SC).** The implementation computes `cluster::silhouette(labels, dist(V))` and averages the spot-level values. Distances are Euclidean distances in the NMF latent space.
+
+**CHAOS.** In this repository, CHAOS is the name used for an implementation-specific within-cluster dispersion score. For each cluster containing at least two spots, it computes the mean Euclidean distance from the spot representations to their cluster centroid:
+
+$$
+\mathrm{CHAOS}_k = \frac{1}{|C_k|}\sum_{i\in C_k}\|\mathbf{v}_i-\boldsymbol{\mu}_k\|_2.
+$$
+
+The partition-level score is the unweighted mean across these eligible clusters. Smaller values indicate more compact clusters in the latent space. This implementation does not calculate spatial-coordinate distances or use a random spatial baseline; it should not be interpreted as a conventional spatial CHAOS calculation. Spatial information enters the representations through graph regularization. The dispersion score depends on the scale of V.
+
+The implementation assigns a missing composite score when SC or CHAOS is missing, or when CHAOS is zero. Missing scores are excluded from quantile calculation and retention. For positive SC and non-zero CHAOS, the ratio favors larger SC and smaller dispersion.
+
+### Filtering and consensus
+
+The threshold is computed using R's default `quantile(scores, q)` rule. Partitions with scores greater than or equal to the threshold are retained. Thus, `1 - q` is the nominal retained proportion; ties can change the actual number retained. At `q = 0`, all partitions with valid scores are retained.
+
+The retained binary co-association matrices are averaged. The final labels are obtained using average-linkage hierarchical clustering on `1 - S_consensus`, cut at the specified number of clusters.
 
 ## Tutorials
 
-Here is a quick example of running ELNMF on the Human Breast Cancer dataset (10X Visium).
+Run the HBC analysis from the repository root:
 
 ```r
-library(Seurat)
-library(Matrix)
-library(hdf5r)  
-
-# 1. Load example dataset
-data_path <- "data/Human_Breast_Cancer/"
-
-expr <- Read10X_h5(paste0(data_path, "filtered_feature_bc_matrix.h5"))
-coords <- read.csv(paste0(data_path, "spatial/tissue_positions_list.csv"))
-
-# 2. Run ELNMF
 source("main/ELNMF.R")
-
-result <- ELNMF(
-  expr_matrix = expr,
-  spatial_coord = coords,
-  k_range = 10:28,
-  lambda_range = 40:60,  
-  n_cluster = 20          
-)
-
-# 3. Save clustering results to CSV
-cluster_df <- data.frame(
-  barcode = colnames(expr),        
-  cluster = result$cluster         
-)
-write.csv(cluster_df, file = "ELNMF_clustering_results.csv", row.names = FALSE)
-
-# Optional: print first few rows to check
-head(cluster_df)
+cluster_df <- data.frame(barcode = colnames(X), cluster = as.integer(pred_labels))
+write.csv(cluster_df, "results/HBC/HBC_cluster_labels.csv", row.names = FALSE)
 ```
----
+
+`ELNMF.R` is an analysis script, not an `ELNMF()` function. It uses the paper's stepped grids (K = 10, 12, ..., 28; lambda = 40, 45, ..., 60), derives the target cluster count from the HBC reference labels, and saves each V matrix for the filtering stage.
+
+## Reproducing the manuscript experiments
+
+See [the experiment guide](experiments/README.md) for executable commands, data requirements, measurement definitions, and known differences between the recorded computational runs and Table S1.
+
+| Material | Location |
+|---|---|
+| ELNMF computational-cost scripts: HBC, MVC, DLPFC 151672 | [computational_cost](experiments/computational_cost/) |
+| Four HBC baseline execution scripts | [baselines](experiments/baselines/) |
+| HBC size-scaled experiment | [scalability](experiments/scalability/) |
+| Windows runtime and process-memory monitor | [run_benchmark.ps1](experiments/run_benchmark.ps1) |
+| Original result CSVs and baseline labels | [recorded results](experiments/results/recorded/) |
+| Figure regeneration, including separate theoretical estimates | [plot_recorded_results.R](experiments/plot_recorded_results.R) |
+| Original controllers and checkpoint-recovery scripts | [archive](experiments/archive/) |
+
+These are computational-cost experiments. Their ARI/NMI values must not be substituted for the paper's accuracy benchmark. Full accuracy-benchmark and 20-run stability reproduction are separate from the computational scripts added here.
+
+## Random-seed protocol
+
+The current main script sets `set.seed(1234)`. In addition, `regularized_nmf()` in `main/NMF.R` and `ensemble_clustering_filtered()` in `main/filter_top.R` each reset the seed internally to 1234. Consequently, changing only the seed before calling these functions does not implement independent random-initialization runs.
+
+The manuscript reports 20 stability runs on MVC under fixed hyperparameter settings. The exact 20-run seed list and experiment-specific script are not included among the current main scripts. Reproducing that analysis requires the original stability script, the actual seed list, identification of which stages vary between runs, and the per-run labels and metrics. The current fixed-seed functions should not be presented as a reproduction of the reported stability experiment.
+
+
+## Computational requirements and scalability
+
+The implementation retains dense spot-by-spot co-association matrices, so memory requirements grow quadratically with the number of spots. NMF configurations run sequentially.
+
+The recorded ELNMF cost measurements use an R 4.5.1 process on Windows; the original CGNMF controller selects R 4.5.2, while Seurat selects R 4.5.1. The workstation has an Intel Core Ultra 7 155H CPU and approximately 31.615 GiB of usable physical RAM. The recorded runs use CPU computation. Each result is a single run, not a mean over repeated runs.
+
+ELNMF's archived cost values measure the complete process, including loading, preprocessing and intermediate saves. Baseline timings and scaling timings include method preprocessing through final labels but exclude initial input preparation. These boundaries are not identical and are documented in the experiment guide.
+
+The recovered scaling records contain completed results at 1,000, 2,000, 3,000, 3,798, 4,500 and 5,000 spots; the last two use checkpoint-resumed measurements. Both recorded 6,000-spot attempts were stopped for memory safety. The 7,000-spot value is an analytical matrix-storage estimate, not a completed or measured run. Plots generated by the new plotting script keep completed measurements, interrupted runs, and theoretical estimates separate.
+
 ## License
 
-This project is released under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html).  
-See the [LICENSE](LICENSE) file for the full text.
-
+This project is released under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html). See [LICENSE](LICENSE) for the full text.
