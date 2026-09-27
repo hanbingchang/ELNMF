@@ -40,16 +40,21 @@ This installs available package versions; it does not recreate a version-locked 
 
 | File or directory | Description |
 |---|---|
-| `main/ELNMF.R` | HBC analysis script covering preprocessing, representation generation, consensus clustering, and ARI/NMI evaluation; uses repository-relative paths |
-| `main/hybrid graph.R` | Hybrid graph construction |
-| `main/NMF.R` | Graph-regularized NMF, including `regularized_nmf()` |
-| `main/ensemble_clustering_filtered.R` | Clustering helpers, co-association matrix construction, and the `ensemble_clustering()` function |
-| `main/aggregative_indicator.R` | Silhouette coefficient, implementation-specific CHAOS score, and their ratio |
-| `main/filter_top.R` | Defines `ensemble_clustering_filtered()`, which loads candidate representations, scores base partitions, applies quantile filtering, and constructs the consensus matrix |
-| `data/` | Dataset files arranged by dataset and DLPFC section |
-| `ELNMF_overview.png` | Framework illustration |
+| `main/ELNMF.R` | Main HBC analysis script, including preprocessing, hybrid graph construction, NMF representation generation, partition filtering, consensus clustering, and ARI/NMI evaluation |
+| `main/hybrid graph.R` | Construction of the hybrid graph integrating spatial proximity and gene expression similarity |
+| `main/NMF.R` | Graph-regularized NMF implementation for learning latent spot representations |
+| `main/ensemble_clustering_filtered.R` | Helper functions for K-means, PAM, and binary co-association matrix construction; also defines `ensemble_clustering()` |
+| `main/aggregative_indicator.R` | Calculation of the Silhouette coefficient, the implementation-specific CHAOS dispersion score, and the composite SC/CHAOS score in the NMF latent space |
+| `main/filter_top.R` | Defines `ensemble_clustering_filtered()`, which loads candidate representations, generates and scores base partitions, applies quantile-based filtering, and constructs the consensus matrix |
+| `Stability to random initialization on the MVC dataset.R` | MVC stability-analysis script using seeds 1–20, with per-run evaluation metrics, predicted labels, and summary statistics |
+| `data/Human_Breast_Cancer/` | HBC input data and reference annotations |
+| `data/MVC/` | MVC data files |
+| `data/DLPFC/` | DLPFC data organized by tissue section |
+| `ELNMF_overview.png` | Schematic illustration of the ELNMF framework |
+| `README.md` | Method overview, parameter settings, and usage instructions |
+| `LICENSE` | GNU General Public License v3.0 |
 
-Despite its filename, `main/ensemble_clustering_filtered.R` does not define the filtered-pipeline entry point; that function is currently defined in `main/filter_top.R`.
+
 
 ## Data preparation
 
@@ -144,27 +149,36 @@ write.csv(cluster_df, "results/HBC/HBC_cluster_labels.csv", row.names = FALSE)
 
 `ELNMF.R` is an analysis script, not an `ELNMF()` function. It uses the paper's stepped grids (K = 10, 12, ..., 28; lambda = 40, 45, ..., 60), derives the target cluster count from the HBC reference labels, and saves each V matrix for the filtering stage.
 
-## Reproducing the manuscript experiments
-
-See [the experiment guide](experiments/README.md) for executable commands, data requirements, measurement definitions, and known differences between the recorded computational runs and Table S1.
-
-| Material | Location |
-|---|---|
-| ELNMF computational-cost scripts: HBC, MVC, DLPFC 151672 | [computational_cost](experiments/computational_cost/) |
-| Four HBC baseline execution scripts | [baselines](experiments/baselines/) |
-| HBC size-scaled experiment | [scalability](experiments/scalability/) |
-| Windows runtime and process-memory monitor | [run_benchmark.ps1](experiments/run_benchmark.ps1) |
-| Original result CSVs and baseline labels | [recorded results](experiments/results/recorded/) |
-| Figure regeneration, including separate theoretical estimates | [plot_recorded_results.R](experiments/plot_recorded_results.R) |
-| Original controllers and checkpoint-recovery scripts | [archive](experiments/archive/) |
-
-These are computational-cost experiments. Their ARI/NMI values must not be substituted for the paper's accuracy benchmark. Full accuracy-benchmark and 20-run stability reproduction are separate from the computational scripts added here.
 
 ## Random-seed protocol
 
-The current main script sets `set.seed(1234)`. In addition, `regularized_nmf()` in `main/NMF.R` and `ensemble_clustering_filtered()` in `main/filter_top.R` each reset the seed internally to 1234. Consequently, changing only the seed before calling these functions does not implement independent random-initialization runs.
+The MVC stability analysis is designed to evaluate variation across 20 runs using seeds `1:20`. At the beginning of each run, the script calls `set.seed(seed)` and uses the same preprocessed expression matrix (`X_full`) and reference labels.
 
-The manuscript reports 20 stability runs on MVC under fixed hyperparameter settings. The exact 20-run seed list and experiment-specific script are not included among the current main scripts. Reproducing that analysis requires the original stability script, the actual seed list, identification of which stages vary between runs, and the per-run labels and metrics. The current fixed-seed functions should not be presented as a reproduction of the reported stability experiment.
+The following parameters remain fixed across runs:
+
+| Parameter | Setting |
+|---|---|
+| Spatial nearest neighbors | 27 |
+| Hybrid graph weight (`alpha`) | 0.8 |
+| Graph parameter (`sigma`) | 1 |
+| NMF latent dimensions | 10, 12, ..., 28 |
+| Graph-regularization strengths | 180, 185, 190, 195, 200 |
+| Partition-filtering threshold (`q`) | 0.30 |
+| Number of final clusters | Number of unique reference labels |
+| Final clustering | Average-linkage hierarchical clustering on `1 - S_consensus` |
+
+For each seed, the script constructs the hybrid graph, calls the ensemble clustering procedure, averages the retained co-association matrices, and generates the final cluster labels. ARI and NMI are calculated against the reference labels.
+
+The script specifies the following outputs:
+
+| Output file | Contents |
+|---|---|
+| `all_seed_results.csv` | Seed, neighborhood size, ARI, NMI, and number of retained partitions for each successful run |
+| `robustness_results.csv` | Mean, standard deviation, variance, and t-based 95% confidence intervals for ARI and NMI across successful runs |
+| `pred_labels_list.rds` | Predicted labels indexed by spot barcode for subsequent comparisons between runs |
+| `run_info_with_labels.csv` | Run identifiers, seeds, and corresponding evaluation metrics |
+
+The seed set at the start of each run must be respected by the functions called within the pipeline. Internal calls that reset the seed to a fixed value can override this setting and must be checked when reproducing the stability analysis.
 
 
 ## Computational requirements and scalability
@@ -173,10 +187,11 @@ The implementation retains dense spot-by-spot co-association matrices, so memory
 
 The recorded ELNMF cost measurements use an R 4.5.1 process on Windows; the original CGNMF controller selects R 4.5.2, while Seurat selects R 4.5.1. The workstation has an Intel Core Ultra 7 155H CPU and approximately 31.615 GiB of usable physical RAM. The recorded runs use CPU computation. Each result is a single run, not a mean over repeated runs.
 
-ELNMF's archived cost values measure the complete process, including loading, preprocessing and intermediate saves. Baseline timings and scaling timings include method preprocessing through final labels but exclude initial input preparation. These boundaries are not identical and are documented in the experiment guide.
+ELNMF's archived cost values measure the complete process, including loading, preprocessing and intermediate saves. Baseline timings and scaling timings include method preprocessing through final labels but exclude initial input preparation.
 
-The recovered scaling records contain completed results at 1,000, 2,000, 3,000, 3,798, 4,500 and 5,000 spots; the last two use checkpoint-resumed measurements. Both recorded 6,000-spot attempts were stopped for memory safety. The 7,000-spot value is an analytical matrix-storage estimate, not a completed or measured run. Plots generated by the new plotting script keep completed measurements, interrupted runs, and theoretical estimates separate.
+The recovered scaling records contain completed results at 1,000, 2,000, 3,000, 3,798, 4,500，5，000 and 6,000 spots. The 7,000-spot value is an analytical matrix-storage estimate, not a completed or measured run. 
 
 ## License
 
 This project is released under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html). See [LICENSE](LICENSE) for the full text.
+
