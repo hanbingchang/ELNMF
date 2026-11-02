@@ -61,6 +61,7 @@ regularized_nmf <- function(X, W,
   
   cat(sprintf("Starting iterative optimization (max iter: %d)...\n", max_iter))
   
+  max_change <- NA_real_
   obj_history <- numeric(max_iter)
   loss_components <- matrix(0, nrow = max_iter, ncol = 3)
   colnames(loss_components) <- c("total", "reconstruction", "graph_w")
@@ -185,4 +186,92 @@ regularized_nmf <- function(X, W,
   }
   
   return(result)
+}
+# Original random-initialization variant used by the MVC stability experiment.
+regularized_nmf_random <- function(X, W, 
+                            k = 20, 
+                            lambda1 = 53, 
+                            max_iter = 100, 
+                            tol = 1e-6,
+                            verbose = TRUE,
+                            check_interval = 100,
+                            seed = NULL) {
+  
+  # ⭐ 控制随机性（关键）
+  if (!is.null(seed)) set.seed(seed)
+  
+  cat("正则化NMF参数初始化...\n")
+  
+  m <- nrow(X)
+  n <- ncol(X)
+  
+  # ---------- 图矩阵 ----------
+  W_norm <- W / mean(W[W > 0])
+  degree_vec <- rowSums(W_norm)
+  D_w <- Diagonal(x = degree_vec)
+  L_w <- D_w - W_norm
+  W <- W_norm
+  
+  # ---------- 初始化 ----------
+  U <- matrix(runif(m * k), m, k)
+  V <- matrix(runif(n * k), n, k)
+  
+  obj_history <- numeric(max_iter)
+  
+  max_change <- NA  # ⭐ 防止未定义
+  
+  for (iter in 1:max_iter) {
+    
+    U_old <- U
+    V_old <- V
+    
+    # ---------- 更新 U ----------
+    XV <- X %*% V
+    VTV <- crossprod(V)
+    UVTV <- U %*% VTV
+    U <- U * (XV / (UVTV + 1e-10))
+    U[U < 0] <- 0
+    
+    # ---------- 更新 V ----------
+    XTU <- crossprod(X, U)
+    WV <- W %*% V
+    numerator <- XTU + lambda1 * WV
+    
+    UTU <- crossprod(U)
+    VUTU <- V %*% UTU
+    D_w_V <- D_w %*% V
+    denominator <- VUTU + lambda1 * D_w_V
+    
+    V <- V * (numerator / (denominator + 1e-10))
+    V[V < 0] <- 0
+    
+    # ---------- 目标函数 ----------
+    if (iter %% check_interval == 0 || iter == 1) {
+      obj <- compute_objective(X, U, V, L_w, lambda1)
+      cat(sprintf("Iter %d | Obj = %.4e\n", iter, obj$total))
+    }
+    
+    obj_history[iter] <- obj$total
+    
+    # ---------- 收敛 ----------
+    if (iter %% check_interval == 0 && iter > 10) {
+      U_change <- norm(U - U_old, "F") / (norm(U_old, "F") + 1e-10)
+      V_change <- norm(V - V_old, "F") / (norm(V_old, "F") + 1e-10)
+      max_change <- max(U_change, V_change)
+      
+      if (max_change < tol) {
+        if (verbose) cat("收敛于 iter =", iter, "\n")
+        break
+      }
+    }
+  }
+  
+  final_obj <- compute_objective(X, U, V, L_w, lambda1)
+  
+  return(list(
+    U = U,
+    V = V,
+    objective = final_obj,
+    history = obj_history
+  ))
 }

@@ -28,8 +28,7 @@ ensemble_clustering_filtered <- function(
       v_path <- file.path(V_dir, paste0(v_name, ".rds"))
       
       if (!file.exists(v_path)) {
-        warning(sprintf("Missing %s, skipping", v_name))
-        next
+        stop(sprintf("Missing representation: %s. Generate the complete requested grid first.", v_path))
       }
       
       V <- readRDS(v_path)
@@ -148,6 +147,110 @@ ensemble_clustering_filtered <- function(
     q = q,
     summary_before = summary_before,
     summary_after = summary_after,
+    n_kept = length(kept_S)
+  ))
+}
+# Online NMF + clustering, preserving the original stability-analysis order.
+ensemble_clustering_online <- function(
+    X,
+    W,
+    k_values,
+    lambda_values,
+    n_clusters,
+    clustering_methods = c("kmeans", "pam"),
+    q = 0.75,
+    max_iter = 500,
+    tol = 1e-4,
+    verbose = TRUE,
+    seed = NULL
+) {
+
+  n <- ncol(X)
+  all_results <- list()
+  evaluation_df <- data.frame()
+  counter <- 1
+  
+  # ================= 第一阶段：NMF + 聚类 + 打分 =================
+  for (lambda1 in lambda_values) {
+    for (k in k_values) {
+      
+      if (verbose) {
+        cat(sprintf("λ=%d | k=%d\n", lambda1, k))
+      }
+      
+      nmf_res <- regularized_nmf_random(
+        X = X,
+        W = W,
+        k = k,
+        lambda1 = lambda1,
+        max_iter = max_iter,
+        seed=seed,
+        tol = tol,
+        verbose = FALSE
+      )
+      
+      V <- nmf_res$V
+      if (nrow(V) != n) V <- t(V)
+      
+      for (method in clustering_methods) {
+        
+        labels <- if (method == "kmeans") {
+          perform_kmeans(V, n_clusters)
+        } else {
+          perform_pam(V, n_clusters)
+        }
+        
+        labels <- as.numeric(as.factor(labels))
+        
+        score_res <- compute_cluster_score(V, labels)
+        
+        evaluation_df <- rbind(
+          evaluation_df,
+          data.frame(
+            lambda = lambda1,
+            k = k,
+            method = method,
+            silhouette = score_res$silhouette,
+            CHAOS = score_res$chaos,
+            score = score_res$score
+          )
+        )
+        
+        all_results[[counter]] <- list(
+          S = compute_association_matrix(labels),
+          score = score_res$score
+        )
+        counter <- counter + 1
+      }
+    }
+  }
+  
+  # ================= 第二阶段：分位数筛选 =================
+  scores <- evaluation_df$score
+  scores <- scores[!is.na(scores)]
+  thr <- as.numeric(quantile(scores, q))
+  
+  kept_S <- list()
+  for (res in all_results) {
+    if (!is.na(res$score) && res$score >= thr) {
+      kept_S[[length(kept_S) + 1]] <- res$S
+    }
+  }
+  
+  if (length(kept_S) == 0) {
+    stop("没有任何聚类结果通过分位数筛选")
+  }
+  
+  S_consensus <- Reduce("+", kept_S) / length(kept_S)
+  diag(S_consensus) <- 1
+  S_consensus <- (S_consensus + t(S_consensus)) / 2
+  
+  return(list(
+    consensus_matrix = S_consensus,
+    all_S_matrices = kept_S,
+    evaluation = evaluation_df,
+    threshold = thr,
+    q = q,
     n_kept = length(kept_S)
   ))
 }

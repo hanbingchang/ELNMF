@@ -23,7 +23,8 @@ hybrid_graph <- function(
     alpha = 0.8, 
     sigma = 1.0, 
     verbose = TRUE,
-    return_intermediate = FALSE
+    return_intermediate = FALSE,
+    coord_header = "auto"
 ) {
   stopifnot(model %in% c("Radius", "KNN"))
   stopifnot(alpha >= 0 && alpha <= 1)
@@ -32,8 +33,17 @@ hybrid_graph <- function(
   
   # Load spatial coordinates
   coord_df <- read.csv(coord_file, header = FALSE, stringsAsFactors = FALSE)
-  if (!grepl("^[0-9.+-]", coord_df[1, 1])) {
-    coord_df <- coord_df[-1, ]
+  # "legacy" exactly preserves the reader used in the original MVC/DLPFC cost runs.
+  # It may remove the first data row when its barcode starts with a letter.
+  # New analyses should use "auto", TRUE or FALSE instead.
+  if (identical(coord_header, "legacy")) {
+    if (!grepl("^[0-9.+-]", coord_df[1, 1])) coord_df <- coord_df[-1, , drop = FALSE]
+  } else if (isTRUE(coord_header) ||
+             (identical(coord_header, "auto") &&
+              tolower(trimws(coord_df[1, 1])) %in% c("barcode", "id", "cell", "cell_id", "spot_id"))) {
+    coord_df <- coord_df[-1, , drop = FALSE]
+  } else if (!identical(coord_header, "auto") && !identical(coord_header, FALSE)) {
+    stop("coord_header must be 'auto', 'legacy', TRUE or FALSE")
   }
   
   if (ncol(coord_df) == 6) {

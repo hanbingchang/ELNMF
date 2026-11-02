@@ -1,4 +1,30 @@
-if (!file.exists("main/NMF.R")) stop("Run from the repository root")
+# Run with Rscript or source(); locate the repository independently of the working directory.
+repo_root <- local({
+  candidates <- c(Sys.getenv("ELNMF_ROOT", unset = ""), getwd())
+  for (frame in sys.frames()) {
+    if (!is.null(frame$ofile)) candidates <- c(dirname(frame$ofile), candidates)
+  }
+  script_arg <- grep("^--file=", commandArgs(), value = TRUE)
+  if (length(script_arg)) candidates <- c(dirname(sub("^--file=", "", script_arg[[1]])), candidates)
+  found <- NULL
+  for (candidate in candidates[nzchar(candidates)]) {
+    current <- normalizePath(candidate, winslash = "/", mustWork = FALSE)
+    repeat {
+      if (dir.exists(file.path(current, "main", "shared")) && dir.exists(file.path(current, "data"))) {
+        found <- current; break
+      }
+      parent <- dirname(current)
+      if (identical(parent, current)) break
+      current <- parent
+    }
+    if (!is.null(found)) break
+  }
+  if (is.null(found)) stop("Cannot locate ELNMF repository. Run from its root or set ELNMF_ROOT.")
+  found
+})
+setwd(repo_root)
+# Outputs are created only when this script is run, outside main/.
+
 getwd()
 
 # Human_Breast_Cancer data analysis
@@ -104,7 +130,7 @@ cat("Number of true clusters:", nlevels(true_labels), "\n")
 
 # ------------------------------ Build hybrid graph -----------------------
 cat("========== Building hybrid graph ==========\n")
-source("main/hybrid graph.R")   # function name: hybrid_graph
+source("main/shared/hybrid graph.R")   # function name: hybrid_graph
 
 hybrid_df <- hybrid_graph(
   X = X,
@@ -140,7 +166,7 @@ n_clusters <- length(unique(na.omit(true_labels)))
 cat("k_values:", k_values, "\n")
 cat("lambda_values:", lambda_values, "\n")
 
-source("main/NMF.R")   
+source("main/shared/NMF.R")   
 
 # ------------------------------ Generate and save V matrices -------------
 cat("\n========== Generating and saving all V matrices ==========\n")
@@ -208,10 +234,10 @@ cat(sprintf("  - V_metadata.csv\n"))
 cat(sprintf("Time taken: %.2f minutes\n", time_diff))
 
 # ------------------------------ Load external functions ------------------
-source("main/NMF.R")
-source("main/ensemble_clustering_filtered.R")  
-source("main/aggregative_indicator.R")  
-source("main/filter_top.R")    # may be used inside ensemble_clustering_filtered
+source("main/shared/NMF.R")
+source("main/shared/ensemble_clustering_filtered.R")  
+source("main/shared/aggregative_indicator.R")  
+source("main/shared/filter_top.R")    # may be used inside ensemble_clustering_filtered
 
 # ------------------------------ Ensemble clustering with filtering --------
 cat("========== Ensemble clustering with quality filtering ==========\n")

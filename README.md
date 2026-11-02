@@ -19,7 +19,7 @@ The main methodological contribution is the ensemble framework combining paramet
 
 ## Requirements
 
-ELNMF is implemented in R. The original repository documentation reports R 4.5.2, whereas the manuscript's computational benchmarks report R 4.5.1. These are reported environments, not a verified minimum-version requirement. RStudio is optional. Package versions should be recorded separately for each reproduced experiment using `sessionInfo()`.
+The ELNMF analysis scripts use R. The runtime and memory monitoring launchers (`.ps1`) require Windows and PowerShell, including access to Windows process information. The original repository documentation reports R 4.5.2. These are reported environments, not a verified minimum-version requirement. RStudio is optional.
 
 The current scripts use the following packages:
 
@@ -27,53 +27,102 @@ The current scripts use the following packages:
 required_packages <- c(
   "Seurat", "hdf5r", "ggplot2", "patchwork", "Matrix",
   "mclust", "aricode", "FNN", "dbscan", "igraph",
-  "kernlab", "cluster"
+  "cluster", "dplyr"
 )
-
 missing_packages <- setdiff(required_packages, rownames(installed.packages()))
 if (length(missing_packages) > 0) install.packages(missing_packages)
 ```
 
-This installs available package versions; it does not recreate a version-locked manuscript environment. Additional dependencies may be needed for data conversion, comparison methods, and downstream analyses.
 
 ## Repository structure
 
-| File or directory | Description |
+```text
+ELNMF/
+  data/
+    Human_Breast_Cancer/
+    MVC/
+    DLPFC/
+  main/
+    ELNMF.R
+    MVC_initialization_stability.R
+    shared/
+      hybrid graph.R
+      NMF.R
+      ensemble_clustering_filtered.R
+      aggregative_indicator.R
+      filter_top.R
+    ELNMF_dataset_cost/
+      HBC_benchmark.R
+      MVC_benchmark.R
+      DLPFC_151672_benchmark.R
+      run_elnmf_computational_cost.ps1
+      plot_elnmf_computational_cost.R
+    HBC_method_comparison/
+      HBC_CGNMF_benchmark.R
+      HBC_Seurat_benchmark.R
+      HBC_stHGC_benchmark.py
+      HBC_MNMST_benchmark.py
+      run_HBC_baseline_benchmark.ps1
+      plot_HBC_method_computational_comparison.R
+    ELNMF_scalability/
+      HBC_ELNMF_scaling_benchmark.R
+      run_HBC_ELNMF_scaling_benchmark.ps1
+      run_HBC_ELNMF_consensus_memory_resume.ps1
+      plot_HBC_ELNMF_scaling.R
+  ELNMF_overview.png
+  README.md
+  LICENSE
+```
+
+| Entry point or directory | Purpose |
 |---|---|
-| `main/ELNMF.R` | Main HBC analysis script, including preprocessing, hybrid graph construction, NMF representation generation, partition filtering, consensus clustering, and ARI/NMI evaluation |
-| `main/hybrid graph.R` | Construction of the hybrid graph integrating spatial proximity and gene expression similarity |
-| `main/NMF.R` | Graph-regularized NMF implementation for learning latent spot representations |
-| `main/ensemble_clustering_filtered.R` | Helper functions for K-means, PAM, and binary co-association matrix construction; also defines `ensemble_clustering()` |
-| `main/aggregative_indicator.R` | Calculation of the Silhouette coefficient, the implementation-specific CHAOS dispersion score, and the composite SC/CHAOS score in the NMF latent space |
-| `main/filter_top.R` | Defines `ensemble_clustering_filtered()`, which loads candidate representations, generates and scores base partitions, applies quantile-based filtering, and constructs the consensus matrix |
-| `Stability to random initialization on the MVC dataset.R` | MVC stability-analysis script using seeds 1–20, with per-run evaluation metrics, predicted labels, and summary statistics |
-| `data/Human_Breast_Cancer/` | HBC input data and reference annotations |
-| `data/MVC/` | MVC data files |
-| `data/DLPFC/` | DLPFC data organized by tissue section |
-| `ELNMF_overview.png` | Schematic illustration of the ELNMF framework |
-| `README.md` | Method overview, parameter settings, and usage instructions |
-| `LICENSE` | GNU General Public License v3.0 |
+| `main/ELNMF.R` | HBC preprocessing, hybrid graph construction, NMF, filtering, consensus clustering, and ARI/NMI evaluation |
+| `main/MVC_initialization_stability.R` | MVC random-initialization stability analysis with seeds 1–20 |
+| `main/ELNMF_dataset_cost/` | ELNMF runtime and peak-memory measurements on HBC, MVC, and DLPFC section 151672 |
+| `main/HBC_method_comparison/` | HBC computational-cost measurements for CGNMF, Seurat, stHGC, and MNMST, and comparison plots including ELNMF |
+| `main/ELNMF_scalability/` | HBC input-size experiments |
+| `main/shared/` | Functions shared by the analysis and experiment scripts |
 
+Within `shared/`, `hybrid graph.R` constructs the graph; `NMF.R` defines the fixed-seed and variable-seed NMF functions; `ensemble_clustering_filtered.R` provides clustering and co-association helpers; `aggregative_indicator.R` computes SC, CHAOS, and their ratio; and `filter_top.R` defines both the saved-representation filtering workflow and the online stability workflow.
 
+The commands below use the repository root as the working directory. Entry scripts also locate the repository from their own paths.
 
 ## Data preparation
 
-The study evaluates human breast cancer (HBC), mouse visual cortex (MVC), and 12 human dorsolateral prefrontal cortex (DLPFC) sections.
-
-The HBC script expects:
+The study uses human breast cancer (HBC), mouse visual cortex (MVC), and 12 human dorsolateral prefrontal cortex (DLPFC) sections. The current analysis scripts read the prepared inputs below:
 
 ```text
-data/Human_Breast_Cancer/
-  filtered_feature_bc_matrix.h5
-  metadata.tsv
-  spatial/tissue_positions_list.csv
+data/
+  Human_Breast_Cancer/
+    filtered_feature_bc_matrix.h5
+    metadata.tsv
+    spatial/tissue_positions_list.csv
+  MVC/
+    filtered_feature_bc_matrix.h5
+    metadata.csv
+    tissue_positions_list.csv
+  DLPFC/
+    151672/
+      filtered_feature_bc_matrix.h5
+      metadata.csv
+      spatial/tissue_positions_list.csv
+    ... other sections ...
 ```
 
-For HBC, the metadata must include `ID` and `ground_truth`. The script reads the legacy tissue-position file without a header and assigns the columns `barcode`, `in_tissue`, `array_row`, `array_col`, `imagerow`, and `imagecol`. Coordinate and metadata readers must match the actual input format.
+The DLPFC section identifiers are 151507–151510 and 151669–151676. The included computational-cost entry point uses section 151672.
 
-The expression matrix uses genes as rows and spots as columns. All coordinate rows, labels, and latent representations must be aligned by spot barcode. The HBC benchmark script retains spots present in the expression matrix, marked as in-tissue, and having a non-missing reference label. It derives the target number of clusters from the reference labels. These benchmark choices should be distinguished from application to an unannotated dataset.
+Expression inputs use the 10x-style HDF5 format read by `Seurat::Read10X_h5`, with genes as rows and spots or cells as columns. The coordinate CSV files have six columns, without a header: `barcode`, `in_tissue`, `array_row`, `array_col`, `imagerow`, and `imagecol`.
 
-The current MVC directory contains H5AD/H5Seurat files. The HBC input reader is not a general MVC loading or conversion workflow.
+| Dataset | Metadata file | Identifier column | Reference-label column |
+|---|---|---|---|
+| HBC | `metadata.tsv` | `ID` | `ground_truth` |
+| MVC | `metadata.csv` | `ID` | `label` |
+| DLPFC 151672 | `metadata.csv` | `key` | `ground_truth` |
+
+All expression columns, coordinates, and annotations must be aligned by identifier. The benchmark workflows retain in-tissue locations with available reference annotations and use the reference labels to specify the number of final domains. These settings describe annotated benchmark datasets; application to an unannotated dataset requires a separately chosen cluster count.
+
+
+To facilitate running ELNMF across different datasets with a consistent input format, we converted the MVC expression data from the original H5AD file into a 10x-style HDF5 (`.h5`) file. Spatial coordinates and reference annotations are provided separately in `tissue_positions_list.csv` and `metadata.csv`, respectively. The MVC analysis scripts use these files as input.
 
 ## Parameter settings
 
@@ -89,7 +138,8 @@ Ten values of K and five values of lambda produce 50 NMF representations. Applyi
 
 ### Settings reported in Supplementary Table S1
 
-The table below records the current manuscript settings supplied by the authors. The computational-cost scripts preserve their original run settings; their documented differences from this table are listed in the experiment guide. 
+The table below records the current manuscript settings supplied by the authors.
+
 | Dataset / section | tau | sigma | alpha | KNN | lambda candidates | q |
 |---|---:|---:|---:|---:|---|---:|
 | DLPFC 151507 | 0.87 | 1 | 0.8 | 22 | 40, 45, 50, 55, 60 | 0.79 |
@@ -109,7 +159,7 @@ The table below records the current manuscript settings supplied by the authors.
 
 All rows use K = 10, 12, ..., 28. Here, tau is the gene zero-expression proportion threshold, sigma and alpha are graph-construction parameters, KNN is the spatial-neighborhood size, and q is the partition-filtering quantile. The HBC script retains genes with zero-expression proportion strictly below tau, applies library-size normalization to 10,000 followed by `log1p`, and selects 2,000 highly variable genes. It calls NMF with `max_iter = 500` and `tol = 1e-4`.
 
-The dataset-specific q values were selected using agreement with reference annotations. They are reported benchmark settings, not universally optimal defaults. 
+The dataset-specific q values were selected using agreement with reference annotations. They are reported benchmark settings, not universally optimal defaults.
 
 ## Quality score and CHAOS implementation
 
@@ -135,22 +185,26 @@ The implementation assigns a missing composite score when SC or CHAOS is missing
 
 The threshold is computed using R's default `quantile(scores, q)` rule. Partitions with scores greater than or equal to the threshold are retained. Thus, `1 - q` is the nominal retained proportion; ties can change the actual number retained. At `q = 0`, all partitions with valid scores are retained.
 
+For the fixed-threshold analysis in Supplementary Section 5.3 and Table S10, the same filtering function can be reused with the reported fixed values of `q`, keeping the other settings unchanged. The exact tested values and aggregation across datasets must match Table S10.
+
 The retained binary co-association matrices are averaged. The final labels are obtained using average-linkage hierarchical clustering on `1 - S_consensus`, cut at the specified number of clusters.
 
-## Tutorials
+## Run the HBC analysis
 
-Run the HBC analysis from the repository root:
+From an R session in the repository root:
 
 ```r
 source("main/ELNMF.R")
-cluster_df <- data.frame(barcode = colnames(X), cluster = as.integer(pred_labels))
+cluster_df <- data.frame(
+  barcode = colnames(X),
+  cluster = as.integer(pred_labels)
+)
 write.csv(cluster_df, "results/HBC/HBC_cluster_labels.csv", row.names = FALSE)
 ```
 
 `ELNMF.R` is an analysis script, not an `ELNMF()` function. It uses the paper's stepped grids (K = 10, 12, ..., 28; lambda = 40, 45, ..., 60), derives the target cluster count from the HBC reference labels, and saves each V matrix for the filtering stage.
 
-
-## Random-seed protocol
+## Random-seed protocol and stability analysis
 
 The MVC stability analysis is designed to evaluate variation across 20 runs using seeds `1:20`. At the beginning of each run, the script calls `set.seed(seed)` and uses the same preprocessed expression matrix (`X_full`) and reference labels.
 
@@ -180,18 +234,72 @@ The script specifies the following outputs:
 
 The seed set at the start of each run must be respected by the functions called within the pipeline. Internal calls that reset the seed to a fixed value can override this setting and must be checked when reproducing the stability analysis.
 
+## Computational experiments
 
-## Computational requirements and scalability
+Run the following commands in PowerShell from the repository root, after configuring the required environments. The launchers execute the experiments; the plotting scripts read the generated CSV files. Running an individual R or Python analysis script alone does not create the controller's process-memory summary.
 
-The implementation retains dense spot-by-spot co-association matrices, so memory requirements grow quadratically with the number of spots. NMF configurations run sequentially.
+### ELNMF computational cost on three datasets
 
-The recorded ELNMF cost measurements use an R 4.5.1 process on Windows; the original CGNMF controller selects R 4.5.2, while Seurat selects R 4.5.1. The workstation has an Intel Core Ultra 7 155H CPU and approximately 31.615 GiB of usable physical RAM. The recorded runs use CPU computation. Each result is a single run, not a mean over repeated runs.
+To measure ELNMF runtime and peak memory usage on HBC, MVC, and DLPFC section 151672, run the following commands in PowerShell from the repository root:
 
-ELNMF's archived cost values measure the complete process, including loading, preprocessing and intermediate saves. Baseline timings and scaling timings include method preprocessing through final labels but exclude initial input preparation.
+```powershell
+& ./main/ELNMF_dataset_cost/run_elnmf_computational_cost.ps1
+Rscript --vanilla main/ELNMF_dataset_cost/plot_elnmf_computational_cost.R
+```
 
-The recovered scaling records contain completed results at 1,000, 2,000, 3,000, 3,798, 4,500，5，000 and 6,000 spots. The 7,000-spot value is an analytical matrix-storage estimate, not a completed or measured run. 
+Results and plots are saved to `results/ELNMF_computational_cost/`.
+
+
+### HBC comparison across methods
+
+The comparison figure requires both the ELNMF HBC cost result and the four baseline-method results:
+
+```powershell
+& ./main/ELNMF_dataset_cost/run_elnmf_computational_cost.ps1 -OnlyDatasets "HBC"
+& ./main/HBC_method_comparison/run_HBC_baseline_benchmark.ps1
+Rscript --vanilla main/HBC_method_comparison/plot_HBC_method_computational_comparison.R
+```
+
+If the ELNMF HBC result already exists, the first command can be omitted. To run a single baseline, pass `-OnlyMethods "Seurat"`, `"CGNMF"`, `"stHGC"`, or `"MNMST"` to the baseline launcher.
+
+Baseline measurements are saved to `results/HBC_baseline_computational_benchmark/HBC_computational_benchmark.csv`, with labels and logs in its `labels/` and `logs/` subdirectories. The plotter writes `HBC_ELNMF_baseline_computational_comparison.csv`, `HBC_method_runtime_comparison.png`, and `HBC_method_peak_memory_comparison.png` under `results/`.
+
+Use measurements from the same machine for the combined figure: the plotter computes baseline RAM percentages using the physical RAM recorded in the ELNMF HBC result.
+
+### HBC scalability
+
+```powershell
+& ./main/ELNMF_scalability/run_HBC_ELNMF_scaling_benchmark.ps1
+Rscript --vanilla main/ELNMF_scalability/plot_HBC_ELNMF_scaling.R
+```
+
+The default target sizes are 1,000, 2,000, 3,000, 3,798, 4,500, 5,000 and 6,000 locations. Use `-Sizes 1000,2000` to select sizes; completed rows are skipped unless `-ForceRerun` is supplied.
+
+The benchmark starts from 3,798 labeled HBC locations. Smaller inputs use sampling stratified by reference domain. Larger inputs retain the original locations and add sampled expression profiles with replacement, new identifiers, and translated coordinates. These larger inputs are constructed computational workloads, not additional independently measured tissue locations.
+
+Outputs are written to `results/HBC_ELNMF_scaling/`: `HBC_ELNMF_scaling_benchmark.csv`, `HBC_ELNMF_peak_memory_scaling.png`, and `HBC_ELNMF_runtime_scaling.png`.
+
+The full-run launcher stops a run if sampled working-set memory reaches 80% of physical RAM or available RAM falls to 1.5 GiB. These thresholds can be set with `-MaxWorkingSetFraction` and `-MinAvailableGB`. A stopped run is recorded as `Terminated_for_memory_safety`, not `Completed`; its observed peak memory and elapsed time are partial-run measurements.
+
+Scalability experiments completed up to 6,000 locations, with checkpoint resumptions used for the 5,000- and 6,000-location runs. The 7,000-location run was terminated for memory safety. The 7,000-location value is an analytical storage estimate rather than a measured result.
+
+### Measurement definitions
+
+The recorded workstation used an Intel Core Ultra 7 155H CPU and approximately 31.615 GiB of usable physical RAM. The measurements describe CPU runs, with one run per reported setting rather than an average over repeats.
+
+| Workflow | Runtime boundary |
+|---|---|
+| Three-dataset ELNMF cost | Full launched process, including loading, preprocessing, computation, and intermediate saves |
+| HBC baseline methods | Method preprocessing through final labels, excluding initial input loading and alignment |
+| Full HBC scalability | Method preprocessing through final labels, excluding initial input construction |
+| Consensus checkpoint rerun | Consensus-stage computation from saved representations |
+
+These boundaries differ and should be retained in the interpretation of the comparison. RAM is the sampled peak summed working set of the launched process and its tracked descendants. The monitoring loops pause for 0.5 seconds between samples; process-query overhead adds to the interval, and brief peaks may be missed. Fields named `*_GB` use bytes divided by 2^30 (GiB). RAM percentages describe the fraction of physical RAM, not the fraction of memory consumed by all compared methods together.
+
+Dense co-association matrices require memory proportional to the square of the number of locations. NMF configurations run sequentially. Runtime and memory can vary with hardware, software versions, and other processes.
+
+
 
 ## License
 
 This project is released under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html). See [LICENSE](LICENSE) for the full text.
-

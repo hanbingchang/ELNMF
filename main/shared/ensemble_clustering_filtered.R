@@ -1,5 +1,4 @@
 library(igraph)
-library(kernlab)
 library(cluster)
 
 # Compute association (connectivity) matrix from labels
