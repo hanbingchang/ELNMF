@@ -1,5 +1,5 @@
 param(
-    [int[]]$Sizes = @(1000, 2000, 3000, 3798, 4500, 5000),
+    [int[]]$Sizes = @(1000, 2000, 3000, 3798, 4500, 5000, 6000),
     [switch]$ForceRerun,
     [double]$MaxWorkingSetFraction = 0.80,
     [double]$MinAvailableGB = 1.5
